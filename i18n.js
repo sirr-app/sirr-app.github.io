@@ -81,6 +81,10 @@ const TRANSLATIONS = {
     you: 'أنت',
     today: 'اليوم',
     yesterday: 'أمس'
+    recent: 'المحادثات الأخيرة',
+    searchResults: 'نتائج البحث',
+    noRecentTitle: 'لا محادثات بعد',
+    noRecentDesc: 'ابحث عن مستخدم باسمه لبدء الدردشة.',
   },
 
   /* ================= English ================= */
@@ -157,6 +161,10 @@ const TRANSLATIONS = {
     you: 'You',
     today: 'Today',
     yesterday: 'Yesterday'
+    recent: 'Recent Chats',
+    searchResults: 'Search Results',
+    noRecentTitle: 'No chats yet',
+    noRecentDesc: 'Search by username to start chatting.',
   },
 
   /* ================= Français ================= */
@@ -233,6 +241,10 @@ const TRANSLATIONS = {
     you: 'Vous',
     today: "Aujourd'hui",
     yesterday: 'Hier'
+    recent: 'Discussions récentes',
+    searchResults: 'Résultats',
+    noRecentTitle: 'Aucune discussion',
+    noRecentDesc: 'Recherchez un utilisateur pour commencer.',
   }
 };
 
