@@ -5,6 +5,7 @@
    - مصادقة Supabase Auth (تسجيل/دخول/خروج) مع تحقق العمر >= 16
    - قائمة المستخدمين + بروفايل شخصي + بحث
    - دردشة فردية لحظية عبر Supabase Realtime Broadcast (بدون تخزين)
+   - قنوات Realtime خاصة (private: true) محمية بـ RLS
    - رسائل نصية ≤ 500 حرف + Emojis + عداد
    - رسائل صوتية ≤ 60 ثانية + ضغط Opus في المتصفح
    - صور ≤ 5 في المرة الواحدة + ضغط تحت 50KB لكل صورة
@@ -136,7 +137,6 @@ const Theme = (() => {
     apply(current);
     localStorage.setItem(KEY, current);
 
-    // متابعة تغيرات النظام إذا لم يُختر يدوياً
     window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', e => {
       if (!localStorage.getItem(KEY + '-manual')) {
         current = e.matches ? 'dark' : 'light';
@@ -177,7 +177,6 @@ function initLanguage() {
    ============================================================ */
 const Auth = {
   async signUp({ email, password, username, fullName, age, phone }) {
-    // التحقق المحلي
     if (!email || !password || !username || !fullName || !age) {
       throw new Error(I18n.t('fillAllFields'));
     }
@@ -195,7 +194,6 @@ const Auth = {
       throw new Error(I18n.t('ageInvalid'));
     }
 
-    // إنشاء المستخدم في Supabase Auth
     const { data, error } = await supabaseClient.auth.signUp({
       email,
       password,
@@ -211,7 +209,6 @@ const Auth = {
     });
     if (error) throw error;
 
-    // إنشاء الملف الشخصي إن وُجدت جلسة مباشرة (تم تأكيد البريد تلقائياً)
     if (data.session && data.user) {
       await Profile.upsert({
         id: data.user.id,
@@ -461,11 +458,11 @@ async function onLoggedIn() {
    ============================================================ */
 async function cleanupRealtime() {
   if (state.myInboxChannel) {
-    await supabaseClient.removeChannel(state.myInboxChannel);
+    try { await supabaseClient.removeChannel(state.myInboxChannel); } catch (_) {}
     state.myInboxChannel = null;
   }
   if (state.partnerSendChannel) {
-    await supabaseClient.removeChannel(state.partnerSendChannel);
+    try { await supabaseClient.removeChannel(state.partnerSendChannel); } catch (_) {}
     state.partnerSendChannel = null;
   }
 }
@@ -562,10 +559,8 @@ function escapeHtml(str) {
 async function selectPartner(partner) {
   state.selectedPartner = partner;
 
-  // تحديث التحديد في القائمة
   $$('.user-item').forEach(el => el.classList.toggle('active', el.dataset.id === partner.id));
 
-  // إظهار نافذة الدردشة
   $('#emptyState').classList.add('hidden');
   $('#activeChat').classList.remove('hidden');
   $('#activeChat').classList.add('flex');
@@ -573,21 +568,30 @@ async function selectPartner(partner) {
   updatePartnerHeader();
   renderMessages();
 
-  // إخفاء الشريط الجانبي على الهواتف
   if (window.innerWidth < 1024) {
     $('#sidebar').classList.add('hidden');
     $('#chatPane').classList.remove('hidden');
   }
 
-  // تنظيف قناة الإرسال القديمة وإنشاء جديدة
+  // تنظيف قناة الإرسال القديمة وإنشاء جديدة (خاصة + محمية بـ RLS)
   if (state.partnerSendChannel) {
-    await supabaseClient.removeChannel(state.partnerSendChannel);
+    try { await supabaseClient.removeChannel(state.partnerSendChannel); } catch (_) {}
     state.partnerSendChannel = null;
   }
-  state.partnerSendChannel = supabaseClient.channel(`inbox-${partner.id}`);
+
+  state.partnerSendChannel = supabaseClient.channel(`inbox-${partner.id}`, {
+    config: {
+      private: true,          // ← تفعيل RLS على القناة
+      broadcast: { self: false }
+    }
+  });
+
   state.partnerSendChannel.subscribe((status) => {
     if (status === 'SUBSCRIBED') {
       console.log('[Realtime] Subscribed to partner inbox:', partner.id);
+    } else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
+      console.warn('[Realtime] Partner channel error:', status);
+      showToast('Realtime connection issue. Retrying...', 'error', 2500);
     }
   });
 
@@ -622,7 +626,6 @@ function renderMessages() {
   const msgs = state.conversations[partner.id] || [];
   msgs.forEach(m => box.appendChild(buildMessageEl(m)));
 
-  // التمرير للأسفل
   requestAnimationFrame(() => { box.scrollTop = box.scrollHeight; });
 }
 
@@ -657,6 +660,13 @@ function buildMessageEl(msg) {
       grid.appendChild(im);
     });
     bubble.appendChild(grid);
+
+    if (msg.text) {
+      const cap = document.createElement('div');
+      cap.className = 'mt-1.5 text-sm';
+      cap.textContent = msg.text;
+      bubble.appendChild(cap);
+    }
   }
 
   // صوت
@@ -694,14 +704,18 @@ function buildMessageEl(msg) {
    19) إرسال واستقبال الرسائل (Realtime Broadcast — بدون تخزين)
    ============================================================ */
 
-/** الاشتراك في صندوق الوارد الخاص بي */
+/** الاشتراك في صندوق الوارد الخاص بي (قناة خاصة محمية بـ RLS) */
 function subscribeMyInbox() {
   if (state.myInboxChannel) {
-    supabaseClient.removeChannel(state.myInboxChannel);
+    try { supabaseClient.removeChannel(state.myInboxChannel); } catch (_) {}
+    state.myInboxChannel = null;
   }
 
   const channel = supabaseClient.channel(`inbox-${state.user.id}`, {
-    config: { broadcast: { self: false } }
+    config: {
+      private: true,              // ← إجباري لتفعيل RLS
+      broadcast: { self: false }
+    }
   });
 
   channel.on('broadcast', { event: 'msg' }, ({ payload }) => {
@@ -716,6 +730,10 @@ function subscribeMyInbox() {
 
   channel.subscribe((status) => {
     console.log('[Realtime] My inbox status:', status);
+    if (status === 'CHANNEL_ERROR') {
+      console.warn('[Realtime] Inbox subscription error — check RLS policies.');
+      showToast('Realtime connection error. Please refresh.', 'error', 4000);
+    }
   });
 
   state.myInboxChannel = channel;
@@ -728,7 +746,6 @@ function handleIncomingMessage(msg) {
   const conv = state.conversations[msg.from] || (state.conversations[msg.from] = []);
   conv.push(msg);
 
-  // إذا كانت المحادثة مفتوحة مع نفس المرسل، اعرضها فوراً
   if (state.selectedPartner?.id === msg.from) {
     const box = $('#messages');
     if (box) {
@@ -763,11 +780,9 @@ async function sendToPartner(payload) {
     });
 
     if (res !== 'ok' && res?.status !== 'ok') {
-      // بعض إصدارات supabase-js ترجع كائن
       console.warn('[send] unexpected response:', res);
     }
 
-    // خزّن محلياً واعرض
     const conv = state.conversations[state.selectedPartner.id] || (state.conversations[state.selectedPartner.id] = []);
     conv.push(full);
     const box = $('#messages');
@@ -818,21 +833,17 @@ function initComposer() {
   const emojiBtn = $('#emojiBtn');
   const emojiPanel = $('#emojiPanel');
 
-  // عدّاد الحروف
   input.addEventListener('input', () => {
     const len = input.value.length;
     counter.textContent = `${len}/500`;
     counter.style.color = len >= 480 ? '#ef4444' : '';
 
-    // تمدد تلقائي
     input.style.height = 'auto';
     input.style.height = Math.min(input.scrollHeight, 128) + 'px';
 
-    // مؤشر الكتابة
     if (len > 0) emitTyping();
   });
 
-  // إرسال عند Enter (بدون Shift)
   input.addEventListener('keydown', (e) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
@@ -842,7 +853,6 @@ function initComposer() {
 
   sendBtn.addEventListener('click', handleSendClick);
 
-  // لوحة الإيموجي
   const EMOJIS = [
     '😀','😃','😄','😁','😆','😅','🤣','😂','🙂','🙃','😉','😊','😇','🥰','😍','🤩','😘','😗','😚','😙',
     '😋','😛','😜','🤪','😝','🤑','🤗','🤭','🤫','🤔','🤐','🤨','😐','😑','😶','😏','😒','🙄','😬','🤥',
@@ -869,7 +879,6 @@ function initComposer() {
     emojiPanel.classList.toggle('hidden');
   });
 
-  // إغلاق اللوحة عند النقر خارجها
   document.addEventListener('click', (e) => {
     if (!emojiPanel.contains(e.target) && e.target !== emojiBtn && !emojiBtn.contains(e.target)) {
       emojiPanel.classList.add('hidden');
@@ -882,7 +891,6 @@ async function handleSendClick() {
   const input = $('#messageInput');
   const text = input.value.trim();
 
-  // إرسال الصور أولاً إن وُجدت
   if (state.pendingImages.length > 0) {
     const imgs = state.pendingImages.map(p => p.dataURL);
     const ok = await sendToPartner({ type: 'image', images: imgs, text: text || '' });
@@ -896,7 +904,6 @@ async function handleSendClick() {
     return;
   }
 
-  // إرسال نص عادي
   if (!text) return;
   if (text.length > 500) {
     showToast(I18n.t('msgTooLong'), 'error');
@@ -950,11 +957,9 @@ function initImagePicker() {
 
 /** ضغط صورة تحت الحد المطلوب (بالبايت) */
 async function compressImage(file, maxBytes) {
-  // اقرأ الصورة
   const dataURL = await fileToDataURL(file);
   const img = await loadImage(dataURL);
 
-  // ابدأ بالقياس الأصلي ولا تتجاوز حداً أقصى معقولاً
   let maxDim = 1600;
   let quality = 0.85;
   let result = null;
@@ -967,7 +972,6 @@ async function compressImage(file, maxBytes) {
       break;
     }
 
-    // قلل تدريجياً
     if (quality > 0.4) quality -= 0.12;
     else maxDim = Math.round(maxDim * 0.82);
 
@@ -975,7 +979,6 @@ async function compressImage(file, maxBytes) {
   }
 
   if (!result) {
-    // محاولة أخيرة بجودة منخفضة جداً
     const { canvas, blob, dataURL: out } = await drawAndExport(img, 320, 0.4);
     result = { dataURL: out, size: blob.size, width: canvas.width, height: canvas.height };
   }
@@ -1020,14 +1023,11 @@ function drawAndExport(img, maxDim, quality) {
     ctx.imageSmoothingEnabled = true;
     ctx.imageSmoothingQuality = 'high';
 
-    // خلفية بيضاء للصور ذات الشفافية
     ctx.fillStyle = '#ffffff';
     ctx.fillRect(0, 0, w, h);
     ctx.drawImage(img, 0, 0, w, h);
 
     const out = canvas.toDataURL('image/jpeg', quality);
-
-    // احسب حجم blob الفعلي
     const blob = dataURLtoBlob(out);
 
     resolve({ canvas, blob, dataURL: out });
@@ -1091,9 +1091,10 @@ function initAudioRecorder() {
         }
       });
 
-      // اختر صيغة مدعومة (Opus في WebM مفضّل — ضغط عالٍ)
       const mime = pickAudioMime();
-      const options = { mimeType: mime, audioBitsPerSecond: 24000 };
+      const options = mime
+        ? { mimeType: mime, audioBitsPerSecond: 24000 }
+        : { audioBitsPerSecond: 24000 };
 
       state.audioChunks = [];
       state.mediaRecorder = new MediaRecorder(stream, options);
@@ -1115,21 +1116,18 @@ function initAudioRecorder() {
           return;
         }
 
-        const blob = new Blob(state.audioChunks, { type: mime });
+        const blob = new Blob(state.audioChunks, { type: mime || 'audio/webm' });
         state.audioChunks = [];
 
-        // تحقق من المدة
         if (state.recSeconds < 1) return;
 
-        // حوّل إلى dataURL
         const dataURL = await blobToDataURL(blob);
 
-        // أرسل
         const ok = await sendToPartner({
           type: 'audio',
           audio: dataURL,
           duration: state.recSeconds,
-          mime
+          mime: mime || 'audio/webm'
         });
 
         if (ok) showToast(I18n.t('audioSent'), 'success', 1500);
@@ -1141,10 +1139,9 @@ function initAudioRecorder() {
       recBar.classList.remove('hidden');
       recBar.classList.add('flex');
 
-      state.mediaRecorder.start(250); // chunks كل 250ms
+      state.mediaRecorder.start(250);
       showToast(I18n.t('recordingStarted'), 'info', 1500);
 
-      // مؤقت
       state.recTimer = setInterval(() => {
         state.recSeconds++;
         recTime.textContent = formatDuration(state.recSeconds);
@@ -1240,7 +1237,6 @@ function initSidebar() {
     }
   });
 
-  // على الشاشات الكبيرة، أظهر الشريط الجانبي دائماً
   window.addEventListener('resize', () => {
     if (window.innerWidth >= 1024) {
       $('#sidebar').classList.remove('hidden');
@@ -1266,13 +1262,9 @@ document.addEventListener('DOMContentLoaded', () => {
 
   $('#themeToggle').addEventListener('click', Theme.toggle);
 
-  // ابدأ بواجهة المصادقة
   showAuthView();
-
-  // اشترك في مستمع الجلسة
   initAuthListener();
 
-  // حفظ تغييرات اللغة على الواجهة الديناميكية
   document.addEventListener('i18n:changed', () => {
     renderUsersList();
     renderMessages();
