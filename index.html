@@ -13,12 +13,8 @@ tailwind.config = {
   darkMode: 'class',
   theme: {
     extend: {
-      colors: {
-        accent: { DEFAULT: '#6366f1', hover: '#4f46e5', soft: '#818cf8' }
-      },
-      fontFamily: {
-        sans: ['Inter','Cairo','system-ui','-apple-system','Segoe UI','sans-serif']
-      },
+      colors: { accent: { DEFAULT: '#6366f1', hover: '#4f46e5', soft: '#818cf8' } },
+      fontFamily: { sans: ['Inter','Cairo','system-ui','-apple-system','Segoe UI','sans-serif'] },
       keyframes: {
         pop:  { '0%':{transform:'scale(.92)',opacity:'0'}, '100%':{transform:'scale(1)',opacity:'1'} },
         slide:{ '0%':{transform:'translateY(6px)',opacity:'0'}, '100%':{transform:'translateY(0)',opacity:'1'} }
@@ -41,7 +37,7 @@ tailwind.config = {
 <body>
 
 <!-- ============================================================
-     HEADER — minimal
+     HEADER
      ============================================================ -->
 <header class="app-header">
   <div class="header-inner">
@@ -69,7 +65,9 @@ tailwind.config = {
       </button>
 
       <div id="userMenu" class="user-menu hidden">
-        <div id="userAvatar" class="avatar-sm"></div>
+        <button id="openProfileBtn" class="avatar-btn" title="Profile">
+          <div id="userAvatar" class="avatar-sm"></div>
+        </button>
         <button id="logoutBtn" class="icon-btn" title="Logout">
           <svg class="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><path d="m16 17 5-5-5-5"/><path d="M21 12H9"/></svg>
         </button>
@@ -100,7 +98,7 @@ tailwind.config = {
         </div>
 
         <!-- Login -->
-        <form id="loginForm" class="auth-form">
+        <form id="loginForm" class="auth-form" novalidate>
           <div class="field-group">
             <label class="field-label" data-i18n="email">البريد الإلكتروني</label>
             <input type="email" id="loginEmail" required autocomplete="email" class="field" placeholder="you@example.com" />
@@ -114,7 +112,7 @@ tailwind.config = {
         </form>
 
         <!-- Signup -->
-        <form id="signupForm" class="auth-form hidden">
+        <form id="signupForm" class="auth-form hidden" novalidate>
           <div class="grid sm:grid-cols-2 gap-3">
             <div class="sm:col-span-2 field-group">
               <label class="field-label" data-i18n="fullName">الاسم واللقب</label>
@@ -160,7 +158,6 @@ tailwind.config = {
       <!-- ===== SIDEBAR ===== -->
       <aside id="sidebar" class="sidebar">
 
-        <!-- Mini profile -->
         <div class="me-strip">
           <div id="myAvatar" class="avatar-md"></div>
           <div class="me-info">
@@ -170,21 +167,17 @@ tailwind.config = {
           <span class="online-dot" title="Online"></span>
         </div>
 
-        <!-- Search -->
         <div class="search-wrap">
           <svg class="search-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
           <input id="searchUsers" type="search" class="search-input" data-i18n-ph="searchUsers" placeholder="ابحث عن مستخدم بالاسم..." autocomplete="off" />
         </div>
 
-        <!-- Section title -->
         <div class="list-label">
           <span id="listLabel" data-i18n="recent">المحادثات الأخيرة</span>
         </div>
 
-        <!-- Users list -->
         <div id="usersList" class="users-list"></div>
 
-        <!-- Empty hint when no recent chats -->
         <div id="emptyRecent" class="empty-recent hidden">
           <div class="empty-icon">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M21 11.5a8.4 8.4 0 0 1-9 8.4 9 9 0 0 1-3.9-.9L3 21l1.9-4.9A8.4 8.4 0 0 1 12 3.1a8.4 8.4 0 0 1 9 8.4Z"/></svg>
@@ -193,13 +186,20 @@ tailwind.config = {
           <p class="empty-desc" data-i18n="noRecentDesc">ابحث عن مستخدم باسمه لبدء الدردشة.</p>
         </div>
 
+        <div id="emptySearch" class="empty-recent hidden">
+          <div class="empty-icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+          </div>
+          <p class="empty-title" data-i18n="noSearchResults">لا نتائج</p>
+          <p class="empty-desc" data-i18n="noSearchDesc">لم نجد أي مستخدم بهذا الاسم.</p>
+        </div>
+
         <div class="ephemeral-note" data-i18n="ephemeralNote">⚡ الرسائل مؤقتة ولا تُخزَّن.</div>
       </aside>
 
       <!-- ===== CHAT PANE ===== -->
       <div id="chatPane" class="chat-pane">
 
-        <!-- Empty state (desktop only) -->
         <div id="emptyState" class="empty-state">
           <div class="empty-state-icon">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M21 11.5a8.4 8.4 0 0 1-9 8.4 9 9 0 0 1-3.9-.9L3 21l1.9-4.9A8.4 8.4 0 0 1 12 3.1a8.4 8.4 0 0 1 9 8.4Z"/></svg>
@@ -208,7 +208,6 @@ tailwind.config = {
           <p data-i18n="selectChatDesc">ابحث عن مستخدم أو اختر من محادثاتك الأخيرة.</p>
         </div>
 
-        <!-- Active chat -->
         <div id="activeChat" class="active-chat hidden">
 
           <div class="chat-head">
@@ -275,6 +274,54 @@ tailwind.config = {
     </div>
   </section>
 </main>
+
+<!-- ============================================================
+     PROFILE SETTINGS MODAL
+     ============================================================ -->
+<div id="profileModal" class="modal-overlay hidden">
+  <div class="modal-card animate-pop">
+
+    <div class="modal-head">
+      <h3 data-i18n="editProfile">تعديل الملف الشخصي</h3>
+      <button type="button" id="closeProfileModal" class="icon-btn">
+        <svg class="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg>
+      </button>
+    </div>
+
+    <form id="profileForm" class="modal-body">
+
+      <div class="pf-preview">
+        <div id="pfPreviewAvatar" class="avatar-lg"></div>
+        <div class="pf-preview-info">
+          <p id="pfPreviewName" class="pf-preview-name"></p>
+          <p id="pfPreviewUser" class="pf-preview-user"></p>
+        </div>
+      </div>
+
+      <div class="field-group">
+        <label class="field-label" data-i18n="fullName">الاسم واللقب</label>
+        <input type="text" id="pfFullName" required minlength="2" maxlength="60" class="field" />
+      </div>
+
+      <div class="field-group">
+        <label class="field-label"><span data-i18n="phone">رقم الهاتف</span> <span class="muted" data-i18n="optional">(اختياري)</span></label>
+        <input type="tel" id="pfPhone" maxlength="20" class="field" placeholder="+213 5xx xx xx xx" />
+      </div>
+
+      <div class="field-group">
+        <label class="field-label" data-i18n="avatarColor">لون الصورة الرمزية</label>
+        <div id="colorPicker" class="color-picker"></div>
+      </div>
+
+      <p id="profileMsg" class="hidden form-msg"></p>
+
+      <div class="modal-actions">
+        <button type="button" id="cancelProfile" class="btn-secondary" data-i18n="cancel">إلغاء</button>
+        <button type="submit" id="saveProfileBtn" class="btn-primary" data-i18n="save">حفظ</button>
+      </div>
+    </form>
+  </div>
+</div>
 
 <!-- Lightbox -->
 <div id="lightbox" class="hidden lightbox">
