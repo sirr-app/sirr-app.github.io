@@ -3,6 +3,7 @@
    ============================================================
    المزايا:
    - مصادقة Supabase Auth (تسجيل/دخول/خروج) مع تحقق العمر >= 16
+   - emailRedirectTo: window.location.href (يشتغل تلقائياً مع أي رابط)
    - قائمة المستخدمين + بروفايل شخصي + بحث
    - دردشة فردية لحظية عبر Supabase Realtime Broadcast (بدون تخزين)
    - قنوات Realtime خاصة (private: true) محمية بـ RLS
@@ -204,6 +205,8 @@ const Auth = {
           age: ageNum,
           phone: phone || null
         },
+        // ✅ رابط إعادة التوجيه — يستعمل تلقائياً الرابط الحالي
+        // (يشتغل مع https://sirr-app.github.io أو http://localhost:5500)
         emailRedirectTo: window.location.href
       }
     });
