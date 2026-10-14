@@ -1,34 +1,32 @@
 /* ============================================================
-   SirrApp — App Logic (Redesigned)
-   ============================================================
-   New:
-   - Recent chats tracker (localStorage)
-   - Sidebar shows ONLY recent chats + search results
-   - Mobile: no chat preview; tap to open; back to return
+   SirrApp — App Logic (Full with Profile Settings + UX)
    ============================================================ */
 
 /* ---------- 1) State ---------- */
 const state = {
-  user: null,
-  profile: null,
-  users: [],
-  filteredUsers: [],
+  user: null, profile: null,
+  users: [], filteredUsers: [],
   selectedPartner: null,
-  myInboxChannel: null,
-  partnerSendChannel: null,
+  myInboxChannel: null, partnerSendChannel: null,
   conversations: {},
   pendingImages: [],
-  mediaRecorder: null,
-  audioChunks: [],
-  recTimer: null,
-  recSeconds: 0,
+  mediaRecorder: null, audioChunks: [],
+  recTimer: null, recSeconds: 0,
   lastTypingSent: 0,
-  isMobile: window.innerWidth < 1024
+  isMobile: window.innerWidth < 1024,
+  pickedColor: null
 };
 
 /* ---------- 2) Helpers ---------- */
 const $  = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => Array.from(r.querySelectorAll(s));
+
+const AVATAR_COLORS = [
+  '#6366f1', '#8b5cf6', '#a855f7', '#d946ef', '#ec4899',
+  '#f43f5e', '#ef4444', '#f97316', '#f59e0b', '#eab308',
+  '#84cc16', '#22c55e', '#10b981', '#14b8a6', '#06b6d4',
+  '#0ea5e9', '#3b82f6', '#4f46e5', '#6366f1', '#71717a'
+];
 
 function uuid() {
   return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c => {
@@ -45,8 +43,14 @@ function formatDuration(sec) {
   const s = Math.floor(sec % 60).toString().padStart(2,'0');
   return `${m}:${s}`;
 }
+
+/** ✅ Return profile color if set, else hash-based color */
+function getAvatarColor(profile, fallback) {
+  if (profile?.avatar_url && /^#[0-9a-fA-F]{6}$/.test(profile.avatar_url)) return profile.avatar_url;
+  return hashColor(fallback || profile?.id || profile?.username || '');
+}
 function hashColor(str) {
-  const p = ['#6366f1','#8b5cf6','#ec4899','#f43f5e','#f59e0b','#10b981','#06b6d4','#0ea5e9','#14b8a6','#a855f7'];
+  const p = AVATAR_COLORS;
   let h = 0;
   for (let i = 0; i < (str||'').length; i++) h = (h * 31 + str.charCodeAt(i)) >>> 0;
   return p[h % p.length];
@@ -71,13 +75,26 @@ function dataURLtoBlob(dataURL) {
   return new Blob([u8], { type: mime });
 }
 
-/* ---------- 3) Recent Chats tracker ---------- */
+/* ---------- 3) Loading Button Helper ---------- */
+function setLoading(btn, loading, loadingText) {
+  if (!btn) return;
+  if (loading) {
+    btn.dataset.originalHtml = btn.innerHTML;
+    btn.disabled = true;
+    btn.innerHTML = `<span class="spinner"></span>${loadingText ? `<span>${loadingText}</span>` : ''}`;
+  } else {
+    btn.disabled = false;
+    if (btn.dataset.originalHtml) {
+      btn.innerHTML = btn.dataset.originalHtml;
+      delete btn.dataset.originalHtml;
+    }
+  }
+}
+
+/* ---------- 4) Recent Chats ---------- */
 const Chats = {
   KEY: 'sirrapp-recent-chats',
-  load() {
-    try { return JSON.parse(localStorage.getItem(this.KEY) || '{}'); }
-    catch { return {}; }
-  },
+  load() { try { return JSON.parse(localStorage.getItem(this.KEY) || '{}'); } catch { return {}; } },
   save(d) { localStorage.setItem(this.KEY, JSON.stringify(d)); },
   touch(partner) {
     if (!partner?.id) return;
@@ -90,18 +107,11 @@ const Chats = {
     };
     this.save(data);
   },
-  all() {
-    const data = this.load();
-    return Object.values(data).sort((a, b) => b.lastAt - a.lastAt);
-  },
-  remove(id) {
-    const data = this.load();
-    delete data[id];
-    this.save(data);
-  }
+  all() { return Object.values(this.load()).sort((a, b) => b.lastAt - a.lastAt); },
+  remove(id) { const d = this.load(); delete d[id]; this.save(d); }
 };
 
-/* ---------- 4) Toasts ---------- */
+/* ---------- 5) Toasts ---------- */
 function showToast(message, type = 'info', duration = 3000) {
   const c = $('#toasts');
   if (!c) return;
@@ -115,7 +125,7 @@ function showToast(message, type = 'info', duration = 3000) {
   }, duration);
 }
 
-/* ---------- 5) Theme ---------- */
+/* ---------- 6) Theme ---------- */
 const Theme = (() => {
   const KEY = 'sirrapp-theme';
   let current = localStorage.getItem(KEY);
@@ -127,11 +137,7 @@ const Theme = (() => {
     $('#iconMoon')?.classList.toggle('hidden', dark);
     document.querySelector('meta[name="theme-color"]')?.setAttribute('content', dark ? '#0a0a0a' : '#fafafa');
   }
-  function init() {
-    if (!current) current = sysPref();
-    apply(current);
-    localStorage.setItem(KEY, current);
-  }
+  function init() { if (!current) current = sysPref(); apply(current); localStorage.setItem(KEY, current); }
   function toggle() {
     current = current === 'dark' ? 'light' : 'dark';
     localStorage.setItem(KEY, current);
@@ -141,7 +147,7 @@ const Theme = (() => {
   return { init, toggle };
 })();
 
-/* ---------- 6) Language ---------- */
+/* ---------- 7) Language ---------- */
 function initLanguage() {
   const select = $('#langSelect');
   select.value = localStorage.getItem('sirrapp-lang') || 'ar';
@@ -153,7 +159,7 @@ function initLanguage() {
   });
 }
 
-/* ---------- 7) Auth ---------- */
+/* ---------- 8) Auth ---------- */
 const Auth = {
   async signUp({ email, password, username, fullName, age, phone }) {
     if (!email || !password || !username || !fullName || !age) throw new Error(I18n.t('fillAllFields'));
@@ -188,7 +194,7 @@ const Auth = {
   async signOut() { await supabaseClient.auth.signOut(); }
 };
 
-/* ---------- 8) Profile ---------- */
+/* ---------- 9) Profile ---------- */
 const Profile = {
   async get(id) {
     const { data, error } = await supabaseClient.from('profiles').select('*').eq('id', id).maybeSingle();
@@ -197,6 +203,11 @@ const Profile = {
   },
   async upsert(p) {
     const { data, error } = await supabaseClient.from('profiles').upsert(p, { onConflict: 'id' }).select().maybeSingle();
+    if (error) throw error;
+    return data;
+  },
+  async update(id, changes) {
+    const { data, error } = await supabaseClient.from('profiles').update(changes).eq('id', id).select().maybeSingle();
     if (error) throw error;
     return data;
   },
@@ -226,7 +237,7 @@ const Profile = {
   }
 };
 
-/* ---------- 9) Views ---------- */
+/* ---------- 10) Views ---------- */
 function showAuthView() {
   $('#authView').classList.remove('hidden');
   $('#chatView').classList.add('hidden');
@@ -240,7 +251,7 @@ function showChatView() {
   $('#userMenu').classList.add('flex');
 }
 
-/* ---------- 10) Auth tabs/forms ---------- */
+/* ---------- 11) Auth Tabs/Forms ---------- */
 function initAuthTabs() {
   const tl = $('#tabLogin'), ts = $('#tabSignup');
   const fl = $('#loginForm'), fs = $('#signupForm');
@@ -253,7 +264,6 @@ function initAuthTabs() {
     fs.classList.remove('hidden'); fl.classList.add('hidden');
   });
 }
-
 function showFormMsg(el, text, type = 'info') {
   el.textContent = text;
   el.className = `form-msg ${type}`;
@@ -266,33 +276,34 @@ function initAgeValidation() {
   age.addEventListener('input', () => {
     const v = parseInt(age.value, 10);
     if (Number.isFinite(v) && v < 16) {
-      warn.classList.remove('hidden');
-      btn.disabled = true;
+      warn.classList.remove('hidden'); btn.disabled = true;
     } else {
-      warn.classList.add('hidden');
-      btn.disabled = false;
+      warn.classList.add('hidden'); btn.disabled = false;
     }
   });
 }
 
 function initAuthForms() {
+  // Login
   $('#loginForm').addEventListener('submit', async e => {
     e.preventDefault();
     const msg = $('#loginMsg'); hideFormMsg(msg);
     const btn = e.target.querySelector('button[type="submit"]');
-    btn.disabled = true;
+    setLoading(btn, true, '...');
     try {
       await Auth.signIn($('#loginEmail').value.trim(), $('#loginPassword').value);
       showFormMsg(msg, I18n.t('loginSuccess'), 'success');
     } catch (err) {
       showFormMsg(msg, I18n.t('loginFailed') + (err.message || ''), 'error');
-    } finally { btn.disabled = false; }
+    } finally { setLoading(btn, false); }
   });
 
+  // Signup
   $('#signupForm').addEventListener('submit', async e => {
     e.preventDefault();
     const msg = $('#signupMsg'); hideFormMsg(msg);
-    const btn = $('#signupBtn'); btn.disabled = true;
+    const btn = $('#signupBtn');
+    setLoading(btn, true, '...');
     try {
       const age = parseInt($('#suAge').value, 10);
       const res = await Auth.signUp({
@@ -307,11 +318,11 @@ function initAuthForms() {
       else { showFormMsg(msg, I18n.t('signupNeedConfirm'), 'info'); $('#signupForm').reset(); }
     } catch (err) {
       showFormMsg(msg, I18n.t('signupFailed') + (err.message || ''), 'error');
-    } finally { btn.disabled = false; }
+    } finally { setLoading(btn, false); }
   });
 }
 
-/* ---------- 11) Auth state ---------- */
+/* ---------- 12) Auth State ---------- */
 function initAuthListener() {
   supabaseClient.auth.onAuthStateChange(async (event, session) => {
     if (event === 'SIGNED_OUT' || !session) {
@@ -334,22 +345,25 @@ async function onLoggedIn() {
   renderMyProfile();
   await loadUsers();
   subscribeMyInbox();
-  // On mobile, ensure sidebar is visible initially
-  if (state.isMobile) {
-    closeMobileChat();
-  }
+  if (window.innerWidth < 1024) closeMobileChat();
 }
 
 async function cleanupRealtime() {
-  if (state.myInboxChannel) { try { await supabaseClient.removeChannel(state.myInboxChannel); } catch(_){} state.myInboxChannel = null; }
-  if (state.partnerSendChannel) { try { await supabaseClient.removeChannel(state.partnerSendChannel); } catch(_){} state.partnerSendChannel = null; }
+  if (state.myInboxChannel) {
+    try { await supabaseClient.removeChannel(state.myInboxChannel); } catch(_){}
+    state.myInboxChannel = null;
+  }
+  if (state.partnerSendChannel) {
+    try { await supabaseClient.removeChannel(state.partnerSendChannel); } catch(_){}
+    state.partnerSendChannel = null;
+  }
 }
 
-/* ---------- 12) My profile ---------- */
+/* ---------- 13) My Profile Rendering ---------- */
 function renderMyProfile() {
   const p = state.profile || {};
   const name = p.full_name || p.username || 'User';
-  const color = hashColor(p.id || p.username || 'me');
+  const color = getAvatarColor(p, p.id);
 
   ['#myAvatar', '#userAvatar'].forEach(sel => {
     const el = $(sel);
@@ -359,68 +373,60 @@ function renderMyProfile() {
   $('#myUsername').textContent = '@' + (p.username || 'user');
 }
 
-/* ---------- 13) Users list (recent + search) ---------- */
+/* ---------- 14) Users List ---------- */
 async function loadUsers() {
   try {
     state.users = await Profile.listExcept(state.user.id);
     renderUsersList();
-  } catch (e) {
-    console.error('loadUsers error:', e);
-  }
+  } catch (e) { console.error('loadUsers error:', e); }
 }
 
 function renderUsersList() {
   const list = $('#usersList');
   const emptyRecent = $('#emptyRecent');
+  const emptySearch = $('#emptySearch');
   const label = $('#listLabel');
   const q = ($('#searchUsers').value || '').trim().toLowerCase();
 
   list.innerHTML = '';
+  emptyRecent.classList.add('hidden');
+  emptySearch.classList.add('hidden');
   let items = [];
 
   if (!q) {
-    // Show RECENT CHATS only
     label.setAttribute('data-i18n', 'recent');
-    label.textContent = I18n.t('recent') || 'المحادثات الأخيرة';
+    label.textContent = I18n.t('recent');
 
     const recent = Chats.all();
-    items = recent.map(r => {
-      const full = state.users.find(u => u.id === r.id);
-      return full || r;
-    });
+    items = recent.map(r => state.users.find(u => u.id === r.id) || r);
 
     if (items.length === 0) {
-      emptyRecent.classList.remove('hidden');
       list.classList.add('hidden');
+      emptyRecent.classList.remove('hidden');
       return;
     } else {
-      emptyRecent.classList.add('hidden');
       list.classList.remove('hidden');
     }
   } else {
-    // Show SEARCH RESULTS
     label.setAttribute('data-i18n', 'searchResults');
-    label.textContent = I18n.t('searchResults') || 'نتائج البحث';
-
-    emptyRecent.classList.add('hidden');
-    list.classList.remove('hidden');
+    label.textContent = I18n.t('searchResults');
 
     items = state.users.filter(u =>
       (u.username || '').toLowerCase().includes(q) ||
       (u.full_name || '').toLowerCase().includes(q)
     );
-  }
 
-  if (items.length === 0) {
-    const empty = document.createElement('p');
-    empty.style.cssText = 'text-align:center;color:var(--text-muted);font-size:12px;padding:24px 12px;';
-    empty.textContent = I18n.t('noUsers');
-    list.appendChild(empty);
-    return;
+    if (items.length === 0) {
+      list.classList.add('hidden');
+      emptySearch.classList.remove('hidden');
+      return;
+    } else {
+      list.classList.remove('hidden');
+    }
   }
 
   items.forEach(u => {
-    const color = hashColor(u.id);
+    const color = getAvatarColor(u, u.id);
     const name = u.full_name || u.username || 'User';
 
     const item = document.createElement('div');
@@ -442,47 +448,40 @@ function renderUsersList() {
   });
 }
 
-/* ---------- 14) Select partner ---------- */
+/* ---------- 15) Select Partner ---------- */
 async function selectPartner(partner) {
   state.selectedPartner = partner;
-
-  // Save to recent chats
   Chats.touch(partner);
 
-  // Mark active in list
   $$('.user-item').forEach(el => el.classList.toggle('active', el.dataset.id === partner.id));
+  $('#emptyState').classList.add('hidden');
+  $('#activeChat').classList.remove('hidden');
+  $('#activeChat').classList.add('flex');
+  $('.chat-layout').classList.add('has-chat');
 
   updatePartnerHeader();
   renderMessages();
 
-  // Clean old send channel
   if (state.partnerSendChannel) {
     try { await supabaseClient.removeChannel(state.partnerSendChannel); } catch(_){}
     state.partnerSendChannel = null;
   }
 
-  // Create new private send channel to partner
   state.partnerSendChannel = supabaseClient.channel(`inbox-${partner.id}`, {
     config: { private: true, broadcast: { self: false } }
   });
-
-  state.partnerSendChannel.subscribe((status) => {
+  state.partnerSendChannel.subscribe(status => {
     if (status === 'SUBSCRIBED') console.log('[RT] send→', partner.id);
-    else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT')
-      console.warn('[RT] channel error:', status);
   });
 
-  // On mobile, open the chat fullscreen
-  if (state.isMobile) openMobileChat();
-
-  $('#messageInput').focus();
+  setTimeout(() => $('#messageInput')?.focus(), 100);
 }
 
 function updatePartnerHeader() {
   const p = state.selectedPartner;
   if (!p) return;
   const name = p.full_name || p.username || 'User';
-  const color = hashColor(p.id);
+  const color = getAvatarColor(p, p.id);
   const av = $('#partnerAvatar');
   av.textContent = initials(name);
   av.style.background = color;
@@ -490,21 +489,29 @@ function updatePartnerHeader() {
   $('#partnerStatus').textContent = '@' + (p.username || '');
 }
 
-/* ---------- 15) Mobile chat open/close ---------- */
-function openMobileChat() {
-  const pane = $('#chatPane');
-  pane.classList.add('mobile-open');
-  $('#emptyState').classList.add('hidden');
-  $('#activeChat').classList.remove('hidden');
-}
+/* ---------- 16) Mobile Chat Open/Close ---------- */
+function openMobileChat() { $('.chat-layout').classList.add('has-chat'); }
 function closeMobileChat() {
-  const pane = $('#chatPane');
-  pane.classList.remove('mobile-open');
+  $('.chat-layout').classList.remove('has-chat');
+  state.selectedPartner = null;
   $('#activeChat').classList.add('hidden');
   $('#emptyState').classList.remove('hidden');
+  $$('.user-item').forEach(el => el.classList.remove('active'));
 }
 
-/* ---------- 16) Messages rendering ---------- */
+/* ---------- 17) Auto-scroll Helper ---------- */
+function isNearBottom(el, threshold = 120) {
+  return el.scrollHeight - el.scrollTop - el.clientHeight < threshold;
+}
+function scrollToBottom(force = false) {
+  const box = $('#messages');
+  if (!box) return;
+  if (force || isNearBottom(box, 200)) {
+    requestAnimationFrame(() => { box.scrollTop = box.scrollHeight; });
+  }
+}
+
+/* ---------- 18) Messages Rendering ---------- */
 function renderMessages() {
   const box = $('#messages');
   if (!box) return;
@@ -572,7 +579,7 @@ function buildMessageEl(msg) {
   return wrap;
 }
 
-/* ---------- 17) Realtime ---------- */
+/* ---------- 19) Realtime ---------- */
 function subscribeMyInbox() {
   if (state.myInboxChannel) {
     try { supabaseClient.removeChannel(state.myInboxChannel); } catch(_){}
@@ -582,18 +589,13 @@ function subscribeMyInbox() {
   const channel = supabaseClient.channel(`inbox-${state.user.id}`, {
     config: { private: true, broadcast: { self: false } }
   });
-
   channel.on('broadcast', { event: 'msg' }, ({ payload }) => handleIncomingMessage(payload));
   channel.on('broadcast', { event: 'typing' }, ({ payload }) => {
     if (payload.to !== state.user.id) return;
     if (state.selectedPartner?.id !== payload.from) return;
     showTypingIndicator();
   });
-
-  channel.subscribe(status => {
-    console.log('[RT] my inbox:', status);
-  });
-
+  channel.subscribe(status => console.log('[RT] my inbox:', status));
   state.myInboxChannel = channel;
 }
 
@@ -602,15 +604,13 @@ function handleIncomingMessage(msg) {
   const conv = state.conversations[msg.from] || (state.conversations[msg.from] = []);
   conv.push(msg);
 
-  // If from current partner → append
   if (state.selectedPartner?.id === msg.from) {
     const box = $('#messages');
     if (box) {
       box.appendChild(buildMessageEl(msg));
-      requestAnimationFrame(() => { box.scrollTop = box.scrollHeight; });
+      scrollToBottom();
     }
   } else {
-    // Touch recent list so sender appears at top
     const senderProfile = state.users.find(u => u.id === msg.from);
     if (senderProfile) Chats.touch(senderProfile);
     renderUsersList();
@@ -637,9 +637,8 @@ async function sendToPartner(payload) {
     const box = $('#messages');
     if (box) {
       box.appendChild(buildMessageEl(full));
-      requestAnimationFrame(() => { box.scrollTop = box.scrollHeight; });
+      scrollToBottom(true); // always scroll after sending our own msg
     }
-    // Ensure partner is at top of recent list
     Chats.touch(state.selectedPartner);
     renderUsersList();
     return true;
@@ -650,7 +649,7 @@ async function sendToPartner(payload) {
   }
 }
 
-/* ---------- 18) Typing ---------- */
+/* ---------- 20) Typing ---------- */
 function showTypingIndicator() {
   const bar = $('#typingBar'); if (!bar) return;
   bar.classList.remove('hidden');
@@ -670,7 +669,7 @@ async function emitTyping() {
   } catch(_){}
 }
 
-/* ---------- 19) Composer ---------- */
+/* ---------- 21) Composer ---------- */
 function initComposer() {
   const input = $('#messageInput');
   const counter = $('#charCounter');
@@ -716,7 +715,6 @@ function initComposer() {
     e.stopPropagation();
     emojiPanel.classList.toggle('hidden');
   });
-
   document.addEventListener('click', e => {
     if (!emojiPanel.contains(e.target) && !emojiBtn.contains(e.target)) {
       emojiPanel.classList.add('hidden');
@@ -747,7 +745,7 @@ async function handleSendClick() {
   if (ok) { input.value = ''; input.dispatchEvent(new Event('input')); }
 }
 
-/* ---------- 20) Images ---------- */
+/* ---------- 22) Images ---------- */
 function initImagePicker() {
   const btn = $('#imageBtn'), fi = $('#imageInput');
   btn.addEventListener('click', () => fi.click());
@@ -778,7 +776,6 @@ async function compressImage(file, maxBytes) {
     i.onload = () => res(i); i.onerror = rej;
     i.src = src;
   });
-
   let maxDim = 1600, quality = 0.85, out = null;
   for (let i = 0; i < 12; i++) {
     const r = drawJpeg(img, maxDim, quality);
@@ -791,7 +788,6 @@ async function compressImage(file, maxBytes) {
   if (out.blob.size > maxBytes * 1.15) throw new Error('too big');
   return out;
 }
-
 function drawJpeg(img, maxDim, quality) {
   const scale = Math.min(1, maxDim / Math.max(img.width, img.height));
   const w = Math.max(1, Math.round(img.width * scale));
@@ -805,7 +801,6 @@ function drawJpeg(img, maxDim, quality) {
   const dataURL = c.toDataURL('image/jpeg', quality);
   return { dataURL, blob: dataURLtoBlob(dataURL) };
 }
-
 function renderPendingImages() {
   const wrap = $('#pendingImages');
   wrap.innerHTML = '';
@@ -823,7 +818,7 @@ function renderPendingImages() {
   });
 }
 
-/* ---------- 21) Audio ---------- */
+/* ---------- 23) Audio ---------- */
 function initAudioRecorder() {
   const mic = $('#micBtn'), bar = $('#recBar'), time = $('#recTime');
   const stop = $('#recStop'), cancel = $('#recCancel');
@@ -872,7 +867,6 @@ function initAudioRecorder() {
       }, 1000);
     } catch { showToast(I18n.t('micError'), 'error'); }
   }
-
   function stopRec(shouldSend) {
     if (!state.mediaRecorder) return;
     state._cancelRec = !shouldSend;
@@ -881,7 +875,6 @@ function initAudioRecorder() {
     bar.classList.add('hidden'); bar.classList.remove('flex');
   }
 }
-
 function pickMime() {
   const c = ['audio/webm;codecs=opus','audio/ogg;codecs=opus','audio/webm','audio/mp4','audio/ogg'];
   for (const m of c) if (window.MediaRecorder && MediaRecorder.isTypeSupported(m)) return m;
@@ -895,7 +888,7 @@ function blobToDataURL(b) {
   });
 }
 
-/* ---------- 22) Lightbox ---------- */
+/* ---------- 24) Lightbox ---------- */
 function openLightbox(src) {
   const lb = $('#lightbox');
   $('#lightboxImg').src = src;
@@ -907,7 +900,133 @@ function initLightbox() {
   document.addEventListener('keydown', e => { if (e.key === 'Escape') lb.classList.add('hidden'); });
 }
 
-/* ---------- 23) Sidebar interactions ---------- */
+/* ---------- 25) Profile Settings Modal ---------- */
+function renderColorPicker() {
+  const wrap = $('#colorPicker');
+  wrap.innerHTML = '';
+  const current = state.profile?.avatar_url && /^#[0-9a-fA-F]{6}$/.test(state.profile.avatar_url)
+    ? state.profile.avatar_url
+    : hashColor(state.profile?.id || '');
+
+  state.pickedColor = current;
+
+  AVATAR_COLORS.forEach(color => {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'color-swatch' + (color.toLowerCase() === current.toLowerCase() ? ' selected' : '');
+    btn.style.background = color;
+    btn.dataset.color = color;
+    btn.addEventListener('click', () => {
+      state.pickedColor = color;
+      $$('#colorPicker .color-swatch').forEach(b => {
+        b.classList.toggle('selected', b.dataset.color === color);
+      });
+      updateProfilePreview();
+    });
+    wrap.appendChild(btn);
+  });
+  updateProfilePreview();
+}
+
+function updateProfilePreview() {
+  const name = ($('#pfFullName').value || '').trim() || state.profile?.full_name || 'User';
+  const username = state.profile?.username || 'user';
+  const color = state.pickedColor || hashColor(state.profile?.id || '');
+  const av = $('#pfPreviewAvatar');
+  av.textContent = initials(name);
+  av.style.background = color;
+  $('#pfPreviewName').textContent = name;
+  $('#pfPreviewUser').textContent = '@' + username;
+}
+
+function openProfileModal() {
+  if (!state.profile) return;
+  $('#pfFullName').value = state.profile.full_name || '';
+  $('#pfPhone').value = state.profile.phone || '';
+  hideFormMsg($('#profileMsg'));
+  renderColorPicker();
+  $('#profileModal').classList.remove('hidden');
+  setTimeout(() => $('#pfFullName').focus(), 100);
+}
+function closeProfileModal() {
+  $('#profileModal').classList.add('hidden');
+}
+
+function initProfileSettings() {
+  $('#openProfileBtn').addEventListener('click', openProfileModal);
+  $('#closeProfileModal').addEventListener('click', closeProfileModal);
+  $('#cancelProfile').addEventListener('click', closeProfileModal);
+
+  // Close on overlay click
+  $('#profileModal').addEventListener('click', e => {
+    if (e.target === $('#profileModal')) closeProfileModal();
+  });
+  document.addEventListener('keydown', e => {
+    if (e.key === 'Escape' && !$('#profileModal').classList.contains('hidden')) closeProfileModal();
+  });
+
+  // Live preview on name change
+  $('#pfFullName').addEventListener('input', updateProfilePreview);
+
+  // Save
+  $('#profileForm').addEventListener('submit', async e => {
+    e.preventDefault();
+    const msg = $('#profileMsg'); hideFormMsg(msg);
+    const btn = $('#saveProfileBtn');
+    const newName = $('#pfFullName').value.trim();
+    const newPhone = $('#pfPhone').value.trim();
+    const newColor = state.pickedColor;
+
+    if (newName.length < 2 || newName.length > 60) {
+      showFormMsg(msg, I18n.t('profileInvalidName'), 'error');
+      return;
+    }
+
+    setLoading(btn, true, '...');
+
+    try {
+      const updated = await Profile.update(state.user.id, {
+        full_name: newName,
+        phone: newPhone || null,
+        avatar_url: newColor
+      });
+      state.profile = { ...state.profile, ...(updated || { full_name: newName, phone: newPhone || null, avatar_url: newColor }) };
+      renderMyProfile();
+      // Refresh list colors
+      renderUsersList();
+      showFormMsg(msg, I18n.t('profileSaved'), 'success');
+      showToast(I18n.t('profileSaved'), 'success', 2000);
+      setTimeout(closeProfileModal, 700);
+    } catch (err) {
+      console.error('Profile save error:', err);
+      showFormMsg(msg, I18n.t('profileSaveFailed') + (err.message || ''), 'error');
+    } finally {
+      setLoading(btn, false);
+    }
+  });
+}
+
+/* ---------- 26) Mobile Keyboard Handling ---------- */
+function initKeyboardHandler() {
+  if (!window.visualViewport) return;
+  const vv = window.visualViewport;
+
+  const update = () => {
+    // Detect if keyboard is visible (viewport shrunk significantly)
+    const isKeyboard = window.innerHeight - vv.height > 120;
+    document.body.classList.toggle('keyboard-open', isKeyboard);
+
+    if (isKeyboard && state.selectedPartner) {
+      // Give browser a moment to adjust, then scroll messages down
+      setTimeout(() => scrollToBottom(true), 150);
+    }
+  };
+
+  vv.addEventListener('resize', update);
+  vv.addEventListener('scroll', update);
+}
+
+/* ---------- 27) Sidebar ---------- */
 function initSidebar() {
   $('#searchUsers').addEventListener('input', () => renderUsersList());
 
@@ -920,24 +1039,25 @@ function initSidebar() {
 
   window.addEventListener('resize', () => {
     const nowMobile = window.innerWidth < 1024;
-    if (nowMobile !== state.isMobile) {
-      state.isMobile = nowMobile;
-      if (!nowMobile) {
-        $('#chatPane').classList.remove('mobile-open');
-        // On desktop: if no partner, show empty state
-        if (!state.selectedPartner) {
-          $('#activeChat').classList.add('hidden');
-          $('#emptyState').classList.remove('hidden');
-        }
+    state.isMobile = nowMobile;
+
+    if (!nowMobile) {
+      $('.chat-layout').classList.remove('has-chat');
+      if (state.selectedPartner) {
+        $('#activeChat').classList.remove('hidden');
+        $('#activeChat').classList.add('flex');
+        $('#emptyState').classList.add('hidden');
       } else {
-        // On mobile: if no partner, ensure chat is hidden
-        if (!state.selectedPartner) closeMobileChat();
+        $('#activeChat').classList.add('hidden');
+        $('#emptyState').classList.remove('hidden');
       }
+    } else {
+      if (!state.selectedPartner) closeMobileChat();
     }
   });
 }
 
-/* ---------- 24) Bootstrap ---------- */
+/* ---------- 28) Bootstrap ---------- */
 document.addEventListener('DOMContentLoaded', () => {
   Theme.init();
   initLanguage();
@@ -949,6 +1069,8 @@ document.addEventListener('DOMContentLoaded', () => {
   initAudioRecorder();
   initSidebar();
   initLightbox();
+  initProfileSettings();
+  initKeyboardHandler();
 
   $('#themeToggle').addEventListener('click', Theme.toggle);
 
