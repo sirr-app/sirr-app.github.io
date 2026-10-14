@@ -313,6 +313,24 @@ tailwind.config = {
         <div id="colorPicker" class="color-picker"></div>
       </div>
 
+      <!-- Notifications setting -->
+      <div class="setting-row">
+        <div class="setting-info">
+          <p class="setting-title" data-i18n="notificationsTitle">إشعارات المتصفح</p>
+          <p class="setting-desc" id="notifStatusText" data-i18n="notificationsDesc">تمكين الإشعارات عند وصول رسالة جديدة.</p>
+        </div>
+        <button type="button" id="notifToggleBtn" class="btn-secondary btn-sm" data-i18n="enable">تفعيل</button>
+      </div>
+
+      <!-- Delete all data -->
+      <div class="setting-row danger">
+        <div class="setting-info">
+          <p class="setting-title" data-i18n="deleteDataTitle">مسح جميع البيانات</p>
+          <p class="setting-desc" data-i18n="deleteDataDesc">حذف كل الرسائل المخزنة محلياً في هذا الجهاز.</p>
+        </div>
+        <button type="button" id="deleteDataBtn" class="btn-danger btn-sm" data-i18n="deleteDataBtn">مسح</button>
+      </div>
+
       <p id="profileMsg" class="hidden form-msg"></p>
 
       <div class="modal-actions">
@@ -320,6 +338,24 @@ tailwind.config = {
         <button type="submit" id="saveProfileBtn" class="btn-primary" data-i18n="save">حفظ</button>
       </div>
     </form>
+  </div>
+</div>
+
+<!-- Delete Confirm Modal -->
+<div id="confirmModal" class="modal-overlay hidden">
+  <div class="modal-card animate-pop" style="max-width:360px">
+    <div class="modal-head">
+      <h3 data-i18n="confirmDeleteTitle">تأكيد الحذف</h3>
+    </div>
+    <div class="modal-body">
+      <p style="font-size:13.5px;color:var(--text-muted);line-height:1.6;margin:0" data-i18n="confirmDeleteDesc">
+        سيتم حذف جميع الرسائل المخزنة محلياً. لا يمكن التراجع عن هذا الإجراء.
+      </p>
+      <div class="modal-actions">
+        <button type="button" id="confirmCancel" class="btn-secondary" data-i18n="cancel">إلغاء</button>
+        <button type="button" id="confirmDelete" class="btn-danger" data-i18n="deleteDataBtn">مسح</button>
+      </div>
+    </div>
   </div>
 </div>
 
