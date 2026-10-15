@@ -1,11 +1,18 @@
 /* ============================================================
-   SirrApp — App Logic (Full with Profile Settings + UX)
+   SirrApp — App Logic (Full)
+   Features:
+   - Supabase Auth + Realtime private channels (ephemeral)
+   - LocalStorage persistence per user
+   - Browser notifications with sound
+   - Mobile back button handling (history API)
+   - Enter to send / Shift+Enter newline
+   - Profile settings modal + delete all data
    ============================================================ */
 
 /* ---------- 1) State ---------- */
 const state = {
   user: null, profile: null,
-  users: [], filteredUsers: [],
+  users: [],
   selectedPartner: null,
   myInboxChannel: null, partnerSendChannel: null,
   conversations: {},
@@ -14,19 +21,22 @@ const state = {
   recTimer: null, recSeconds: 0,
   lastTypingSent: 0,
   isMobile: window.innerWidth < 1024,
-  pickedColor: null
+  pickedColor: null,
+  notificationsEnabled: false,
+  audioCtx: null
 };
 
-/* ---------- 2) Helpers ---------- */
-const $  = (s, r = document) => r.querySelector(s);
-const $$ = (s, r = document) => Array.from(r.querySelectorAll(s));
-
+/* ---------- 2) Constants ---------- */
 const AVATAR_COLORS = [
   '#6366f1', '#8b5cf6', '#a855f7', '#d946ef', '#ec4899',
   '#f43f5e', '#ef4444', '#f97316', '#f59e0b', '#eab308',
   '#84cc16', '#22c55e', '#10b981', '#14b8a6', '#06b6d4',
-  '#0ea5e9', '#3b82f6', '#4f46e5', '#6366f1', '#71717a'
+  '#0ea5e9', '#3b82f6', '#4f46e5', '#8b5cf6', '#71717a'
 ];
+
+/* ---------- 3) Helpers ---------- */
+const $  = (s, r = document) => r.querySelector(s);
+const $$ = (s, r = document) => Array.from(r.querySelectorAll(s));
 
 function uuid() {
   return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c => {
@@ -43,8 +53,6 @@ function formatDuration(sec) {
   const s = Math.floor(sec % 60).toString().padStart(2,'0');
   return `${m}:${s}`;
 }
-
-/** ✅ Return profile color if set, else hash-based color */
 function getAvatarColor(profile, fallback) {
   if (profile?.avatar_url && /^#[0-9a-fA-F]{6}$/.test(profile.avatar_url)) return profile.avatar_url;
   return hashColor(fallback || profile?.id || profile?.username || '');
@@ -74,8 +82,6 @@ function dataURLtoBlob(dataURL) {
   for (let i = 0; i < bin.length; i++) u8[i] = bin.charCodeAt(i);
   return new Blob([u8], { type: mime });
 }
-
-/* ---------- 3) Loading Button Helper ---------- */
 function setLoading(btn, loading, loadingText) {
   if (!btn) return;
   if (loading) {
@@ -91,7 +97,7 @@ function setLoading(btn, loading, loadingText) {
   }
 }
 
-/* ---------- 4) Recent Chats ---------- */
+/* ---------- 4) LocalStorage: Recent Chats ---------- */
 const Chats = {
   KEY: 'sirrapp-recent-chats',
   load() { try { return JSON.parse(localStorage.getItem(this.KEY) || '{}'); } catch { return {}; } },
@@ -108,10 +114,145 @@ const Chats = {
     this.save(data);
   },
   all() { return Object.values(this.load()).sort((a, b) => b.lastAt - a.lastAt); },
-  remove(id) { const d = this.load(); delete d[id]; this.save(d); }
+  remove(id) { const d = this.load(); delete d[id]; this.save(d); },
+  clear() { localStorage.removeItem(this.KEY); }
 };
 
-/* ---------- 5) Toasts ---------- */
+/* ---------- 5) LocalStorage: Messages Persistence ---------- */
+const Messages = {
+  key() { return `sirrapp-messages-${state.user?.id || 'anon'}`; },
+  load() {
+    if (!state.user) return {};
+    try { return JSON.parse(localStorage.getItem(this.key()) || '{}'); }
+    catch { return {}; }
+  },
+  save() {
+    if (!state.user) return;
+    try {
+      // Trim each conversation to last 200 messages to avoid quota issues
+      const trimmed = {};
+      for (const [pid, msgs] of Object.entries(state.conversations)) {
+        trimmed[pid] = Array.isArray(msgs) ? msgs.slice(-200) : [];
+      }
+      localStorage.setItem(this.key(), JSON.stringify(trimmed));
+    } catch (e) {
+      console.warn('localStorage save failed:', e);
+    }
+  },
+  clear() {
+    if (!state.user) return;
+    localStorage.removeItem(this.key());
+    state.conversations = {};
+  }
+};
+
+/* ---------- 6) Notifications ---------- */
+const Notify = {
+  isSupported() { return 'Notification' in window; },
+
+  getPermission() {
+    if (!this.isSupported()) return 'unsupported';
+    return Notification.permission; // 'default' | 'granted' | 'denied'
+  },
+
+  async request() {
+    if (!this.isSupported()) return 'unsupported';
+    try {
+      const result = await Notification.requestPermission();
+      state.notificationsEnabled = result === 'granted';
+      return result;
+    } catch { return 'denied'; }
+  },
+
+  async show(title, body, onClick) {
+    if (!this.isSupported()) return;
+    if (Notification.permission !== 'granted') return;
+    if (!state.notificationsEnabled) return;
+
+    // Don't show if page is focused and chat is open with sender
+    if (!document.hidden && state.selectedPartner) return;
+
+    try {
+      const n = new Notification(title, {
+        body,
+        icon: 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><rect width="100" height="100" rx="24" fill="%236366f1"/><text x="50" y="72" font-size="64" font-family="Arial" font-weight="bold" fill="white" text-anchor="middle">S</text></svg>',
+        tag: 'sirrapp-' + Date.now(),
+        silent: true
+      });
+      n.onclick = () => {
+        window.focus();
+        if (typeof onClick === 'function') onClick();
+        n.close();
+      };
+      setTimeout(() => { try { n.close(); } catch(_){} }, 6000);
+    } catch (e) { console.warn('Notification error:', e); }
+    this.playSound();
+  },
+
+  playSound() {
+    try {
+      if (!state.audioCtx) {
+        const Ctx = window.AudioContext || window.webkitAudioContext;
+        if (!Ctx) return;
+        state.audioCtx = new Ctx();
+      }
+      const ctx = state.audioCtx;
+      if (ctx.state === 'suspended') ctx.resume();
+      const now = ctx.currentTime;
+
+      // Two-tone gentle beep
+      [880, 1174].forEach((freq, i) => {
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.type = 'sine';
+        osc.frequency.value = freq;
+        gain.gain.setValueAtTime(0, now + i * 0.12);
+        gain.gain.linearRampToValueAtTime(0.12, now + i * 0.12 + 0.02);
+        gain.gain.exponentialRampToValueAtTime(0.001, now + i * 0.12 + 0.15);
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+        osc.start(now + i * 0.12);
+        osc.stop(now + i * 0.12 + 0.18);
+      });
+    } catch (_) {}
+  },
+
+  updateUI() {
+    const btn = $('#notifToggleBtn');
+    const text = $('#notifStatusText');
+    if (!btn) return;
+    const perm = this.getPermission();
+
+    if (perm === 'unsupported') {
+      text.setAttribute('data-i18n', 'notificationsUnsupported');
+      text.textContent = I18n.t('notificationsUnsupported');
+      btn.disabled = true;
+      btn.setAttribute('data-i18n', 'enable');
+      btn.textContent = I18n.t('enable');
+      return;
+    }
+    if (perm === 'denied') {
+      text.setAttribute('data-i18n', 'notificationsDescBlocked');
+      text.textContent = I18n.t('notificationsDescBlocked');
+      btn.setAttribute('data-i18n', 'enable');
+      btn.textContent = I18n.t('enable');
+      return;
+    }
+    if (perm === 'granted' && state.notificationsEnabled) {
+      text.setAttribute('data-i18n', 'notificationsDescOn');
+      text.textContent = I18n.t('notificationsDescOn');
+      btn.setAttribute('data-i18n', 'disable');
+      btn.textContent = I18n.t('disable');
+    } else {
+      text.setAttribute('data-i18n', 'notificationsDescOff');
+      text.textContent = I18n.t('notificationsDescOff');
+      btn.setAttribute('data-i18n', 'enable');
+      btn.textContent = I18n.t('enable');
+    }
+  }
+};
+
+/* ---------- 7) Toasts ---------- */
 function showToast(message, type = 'info', duration = 3000) {
   const c = $('#toasts');
   if (!c) return;
@@ -125,7 +266,7 @@ function showToast(message, type = 'info', duration = 3000) {
   }, duration);
 }
 
-/* ---------- 6) Theme ---------- */
+/* ---------- 8) Theme ---------- */
 const Theme = (() => {
   const KEY = 'sirrapp-theme';
   let current = localStorage.getItem(KEY);
@@ -147,7 +288,7 @@ const Theme = (() => {
   return { init, toggle };
 })();
 
-/* ---------- 7) Language ---------- */
+/* ---------- 9) Language ---------- */
 function initLanguage() {
   const select = $('#langSelect');
   select.value = localStorage.getItem('sirrapp-lang') || 'ar';
@@ -156,10 +297,11 @@ function initLanguage() {
     renderUsersList();
     renderMessages();
     updatePartnerHeader();
+    Notify.updateUI();
   });
 }
 
-/* ---------- 8) Auth ---------- */
+/* ---------- 10) Auth ---------- */
 const Auth = {
   async signUp({ email, password, username, fullName, age, phone }) {
     if (!email || !password || !username || !fullName || !age) throw new Error(I18n.t('fillAllFields'));
@@ -194,7 +336,7 @@ const Auth = {
   async signOut() { await supabaseClient.auth.signOut(); }
 };
 
-/* ---------- 9) Profile ---------- */
+/* ---------- 11) Profile ---------- */
 const Profile = {
   async get(id) {
     const { data, error } = await supabaseClient.from('profiles').select('*').eq('id', id).maybeSingle();
@@ -237,7 +379,7 @@ const Profile = {
   }
 };
 
-/* ---------- 10) Views ---------- */
+/* ---------- 12) Views ---------- */
 function showAuthView() {
   $('#authView').classList.remove('hidden');
   $('#chatView').classList.add('hidden');
@@ -251,7 +393,7 @@ function showChatView() {
   $('#userMenu').classList.add('flex');
 }
 
-/* ---------- 11) Auth Tabs/Forms ---------- */
+/* ---------- 13) Auth Tabs/Forms ---------- */
 function initAuthTabs() {
   const tl = $('#tabLogin'), ts = $('#tabSignup');
   const fl = $('#loginForm'), fs = $('#signupForm');
@@ -284,7 +426,6 @@ function initAgeValidation() {
 }
 
 function initAuthForms() {
-  // Login
   $('#loginForm').addEventListener('submit', async e => {
     e.preventDefault();
     const msg = $('#loginMsg'); hideFormMsg(msg);
@@ -298,7 +439,6 @@ function initAuthForms() {
     } finally { setLoading(btn, false); }
   });
 
-  // Signup
   $('#signupForm').addEventListener('submit', async e => {
     e.preventDefault();
     const msg = $('#signupMsg'); hideFormMsg(msg);
@@ -322,11 +462,12 @@ function initAuthForms() {
   });
 }
 
-/* ---------- 12) Auth State ---------- */
+/* ---------- 14) Auth State ---------- */
 function initAuthListener() {
   supabaseClient.auth.onAuthStateChange(async (event, session) => {
     if (event === 'SIGNED_OUT' || !session) {
       state.user = null; state.profile = null;
+      state.conversations = {};
       cleanupRealtime();
       showAuthView();
       return;
@@ -341,11 +482,32 @@ function initAuthListener() {
 }
 
 async function onLoggedIn() {
+  // Load persisted messages for this user
+  state.conversations = Messages.load();
+
+  // Load notification preference
+  state.notificationsEnabled = Notify.getPermission() === 'granted'
+    && localStorage.getItem('sirrapp-notif-enabled') !== 'false';
+
   showChatView();
   renderMyProfile();
   await loadUsers();
   subscribeMyInbox();
   if (window.innerWidth < 1024) closeMobileChat();
+
+  // Request notifications on first login if not asked
+  if (Notify.isSupported() && Notify.getPermission() === 'default') {
+    // Delay a bit so user interacts first
+    setTimeout(async () => {
+      const perm = await Notify.request();
+      if (perm === 'granted') {
+        state.notificationsEnabled = true;
+        localStorage.setItem('sirrapp-notif-enabled', 'true');
+        showToast(I18n.t('notificationsEnabled'), 'success', 2200);
+      }
+      Notify.updateUI();
+    }, 2000);
+  }
 }
 
 async function cleanupRealtime() {
@@ -359,7 +521,7 @@ async function cleanupRealtime() {
   }
 }
 
-/* ---------- 13) My Profile Rendering ---------- */
+/* ---------- 15) My Profile Rendering ---------- */
 function renderMyProfile() {
   const p = state.profile || {};
   const name = p.full_name || p.username || 'User';
@@ -373,7 +535,7 @@ function renderMyProfile() {
   $('#myUsername').textContent = '@' + (p.username || 'user');
 }
 
-/* ---------- 14) Users List ---------- */
+/* ---------- 16) Users List ---------- */
 async function loadUsers() {
   try {
     state.users = await Profile.listExcept(state.user.id);
@@ -448,7 +610,7 @@ function renderUsersList() {
   });
 }
 
-/* ---------- 15) Select Partner ---------- */
+/* ---------- 17) Select Partner ---------- */
 async function selectPartner(partner) {
   state.selectedPartner = partner;
   Chats.touch(partner);
@@ -474,6 +636,13 @@ async function selectPartner(partner) {
     if (status === 'SUBSCRIBED') console.log('[RT] send→', partner.id);
   });
 
+  // ✅ Push history state for mobile back button
+  if (window.innerWidth < 1024) {
+    try {
+      history.pushState({ chat: partner.id }, '', '#chat');
+    } catch(_) {}
+  }
+
   setTimeout(() => $('#messageInput')?.focus(), 100);
 }
 
@@ -489,7 +658,25 @@ function updatePartnerHeader() {
   $('#partnerStatus').textContent = '@' + (p.username || '');
 }
 
-/* ---------- 16) Mobile Chat Open/Close ---------- */
+/* ---------- 18) Mobile Back Button ---------- */
+function initBackButtonHandler() {
+  window.addEventListener('popstate', (e) => {
+    // If chat is open and user pressed hardware back → close chat, stay on site
+    if (state.selectedPartner) {
+      closeMobileChat();
+      // Push state again so we can intercept next back
+      try { history.pushState({ app: 'sirrapp' }, '', location.pathname); } catch(_) {}
+    }
+    // else: let it pass (user leaves the app)
+  });
+
+  // Set initial state so first back press is interceptable
+  try {
+    history.replaceState({ app: 'sirrapp', initial: true }, '', location.pathname);
+  } catch(_) {}
+}
+
+/* ---------- 19) Mobile Chat Open/Close ---------- */
 function openMobileChat() { $('.chat-layout').classList.add('has-chat'); }
 function closeMobileChat() {
   $('.chat-layout').classList.remove('has-chat');
@@ -499,7 +686,7 @@ function closeMobileChat() {
   $$('.user-item').forEach(el => el.classList.remove('active'));
 }
 
-/* ---------- 17) Auto-scroll Helper ---------- */
+/* ---------- 20) Auto-scroll ---------- */
 function isNearBottom(el, threshold = 120) {
   return el.scrollHeight - el.scrollTop - el.clientHeight < threshold;
 }
@@ -511,7 +698,7 @@ function scrollToBottom(force = false) {
   }
 }
 
-/* ---------- 18) Messages Rendering ---------- */
+/* ---------- 21) Messages Rendering ---------- */
 function renderMessages() {
   const box = $('#messages');
   if (!box) return;
@@ -579,7 +766,7 @@ function buildMessageEl(msg) {
   return wrap;
 }
 
-/* ---------- 19) Realtime ---------- */
+/* ---------- 22) Realtime ---------- */
 function subscribeMyInbox() {
   if (state.myInboxChannel) {
     try { supabaseClient.removeChannel(state.myInboxChannel); } catch(_){}
@@ -601,9 +788,24 @@ function subscribeMyInbox() {
 
 function handleIncomingMessage(msg) {
   if (!msg || msg.to !== state.user.id) return;
+
+  // Save to conversations
   const conv = state.conversations[msg.from] || (state.conversations[msg.from] = []);
   conv.push(msg);
 
+  // Persist to localStorage
+  Messages.save();
+
+  // Find sender info
+  const senderProfile = state.users.find(u => u.id === msg.from);
+  const senderName = senderProfile?.full_name || senderProfile?.username || 'User';
+
+  // Add sender to recent chats
+  if (senderProfile) {
+    Chats.touch(senderProfile);
+  }
+
+  // If currently chatting with this sender → append + scroll
   if (state.selectedPartner?.id === msg.from) {
     const box = $('#messages');
     if (box) {
@@ -611,10 +813,27 @@ function handleIncomingMessage(msg) {
       scrollToBottom();
     }
   } else {
-    const senderProfile = state.users.find(u => u.id === msg.from);
-    if (senderProfile) Chats.touch(senderProfile);
+    // Show toast + notification
     renderUsersList();
-    showToast(`💬 ${I18n.t('msgSent')}`, 'info', 2200);
+    showToast(`💬 ${I18n.t('newMessageFrom')} ${senderName}`, 'info', 2400);
+  }
+
+  // Always show browser notification if tab is hidden OR not chatting with sender
+  const shouldNotify = document.hidden || state.selectedPartner?.id !== msg.from;
+  if (shouldNotify) {
+    let preview = '';
+    if (msg.type === 'text') preview = (msg.text || '').slice(0, 80);
+    else if (msg.type === 'image') preview = '📷';
+    else if (msg.type === 'audio') preview = '🎤';
+
+    Notify.show(
+      `${I18n.t('newMessageFrom')} ${senderName}`,
+      preview,
+      () => {
+        // On click: open chat with sender
+        if (senderProfile) selectPartner(senderProfile);
+      }
+    );
   }
 }
 
@@ -634,10 +853,12 @@ async function sendToPartner(payload) {
     await state.partnerSendChannel.send({ type: 'broadcast', event: 'msg', payload: full });
     const conv = state.conversations[state.selectedPartner.id] || (state.conversations[state.selectedPartner.id] = []);
     conv.push(full);
+    Messages.save();
+
     const box = $('#messages');
     if (box) {
       box.appendChild(buildMessageEl(full));
-      scrollToBottom(true); // always scroll after sending our own msg
+      scrollToBottom(true);
     }
     Chats.touch(state.selectedPartner);
     renderUsersList();
@@ -649,7 +870,7 @@ async function sendToPartner(payload) {
   }
 }
 
-/* ---------- 20) Typing ---------- */
+/* ---------- 23) Typing ---------- */
 function showTypingIndicator() {
   const bar = $('#typingBar'); if (!bar) return;
   bar.classList.remove('hidden');
@@ -669,7 +890,7 @@ async function emitTyping() {
   } catch(_){}
 }
 
-/* ---------- 21) Composer ---------- */
+/* ---------- 24) Composer (Enter to send) ---------- */
 function initComposer() {
   const input = $('#messageInput');
   const counter = $('#charCounter');
@@ -686,8 +907,12 @@ function initComposer() {
     if (len > 0) emitTyping();
   });
 
+  // ✅ Enter = send, Shift+Enter = newline
   input.addEventListener('keydown', e => {
-    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSendClick(); }
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      handleSendClick();
+    }
   });
 
   sendBtn.addEventListener('click', handleSendClick);
@@ -745,7 +970,7 @@ async function handleSendClick() {
   if (ok) { input.value = ''; input.dispatchEvent(new Event('input')); }
 }
 
-/* ---------- 22) Images ---------- */
+/* ---------- 25) Images ---------- */
 function initImagePicker() {
   const btn = $('#imageBtn'), fi = $('#imageInput');
   btn.addEventListener('click', () => fi.click());
@@ -818,7 +1043,7 @@ function renderPendingImages() {
   });
 }
 
-/* ---------- 23) Audio ---------- */
+/* ---------- 26) Audio ---------- */
 function initAudioRecorder() {
   const mic = $('#micBtn'), bar = $('#recBar'), time = $('#recTime');
   const stop = $('#recStop'), cancel = $('#recCancel');
@@ -888,7 +1113,7 @@ function blobToDataURL(b) {
   });
 }
 
-/* ---------- 24) Lightbox ---------- */
+/* ---------- 27) Lightbox ---------- */
 function openLightbox(src) {
   const lb = $('#lightbox');
   $('#lightboxImg').src = src;
@@ -900,7 +1125,7 @@ function initLightbox() {
   document.addEventListener('keydown', e => { if (e.key === 'Escape') lb.classList.add('hidden'); });
 }
 
-/* ---------- 25) Profile Settings Modal ---------- */
+/* ---------- 28) Profile Settings Modal ---------- */
 function renderColorPicker() {
   const wrap = $('#colorPicker');
   wrap.innerHTML = '';
@@ -945,6 +1170,7 @@ function openProfileModal() {
   $('#pfPhone').value = state.profile.phone || '';
   hideFormMsg($('#profileMsg'));
   renderColorPicker();
+  Notify.updateUI();
   $('#profileModal').classList.remove('hidden');
   setTimeout(() => $('#pfFullName').focus(), 100);
 }
@@ -957,7 +1183,6 @@ function initProfileSettings() {
   $('#closeProfileModal').addEventListener('click', closeProfileModal);
   $('#cancelProfile').addEventListener('click', closeProfileModal);
 
-  // Close on overlay click
   $('#profileModal').addEventListener('click', e => {
     if (e.target === $('#profileModal')) closeProfileModal();
   });
@@ -965,10 +1190,61 @@ function initProfileSettings() {
     if (e.key === 'Escape' && !$('#profileModal').classList.contains('hidden')) closeProfileModal();
   });
 
-  // Live preview on name change
   $('#pfFullName').addEventListener('input', updateProfilePreview);
 
-  // Save
+  // Notification toggle
+  $('#notifToggleBtn').addEventListener('click', async () => {
+    const perm = Notify.getPermission();
+    if (perm === 'unsupported') { showToast(I18n.t('notificationsUnsupported'), 'error'); return; }
+    if (perm === 'denied') { showToast(I18n.t('notificationsBlocked'), 'error'); return; }
+
+    if (state.notificationsEnabled) {
+      state.notificationsEnabled = false;
+      localStorage.setItem('sirrapp-notif-enabled', 'false');
+      showToast(I18n.t('notificationsDisabled'), 'info', 1800);
+    } else {
+      const result = await Notify.request();
+      if (result === 'granted') {
+        state.notificationsEnabled = true;
+        localStorage.setItem('sirrapp-notif-enabled', 'true');
+        showToast(I18n.t('notificationsEnabled'), 'success', 1800);
+        Notify.playSound();
+      } else if (result === 'denied') {
+        showToast(I18n.t('notificationsBlocked'), 'error');
+      }
+    }
+    Notify.updateUI();
+  });
+
+  // Delete all data
+  $('#deleteDataBtn').addEventListener('click', () => {
+    $('#confirmModal').classList.remove('hidden');
+  });
+  $('#confirmCancel').addEventListener('click', () => {
+    $('#confirmModal').classList.add('hidden');
+  });
+  $('#confirmDelete').addEventListener('click', () => {
+    try {
+      Messages.clear();
+      Chats.clear();
+      // Reset in-memory conversations
+      state.conversations = {};
+      // Also clear open chat if any
+      if (state.selectedPartner) {
+        state.selectedPartner = null;
+        $('#activeChat').classList.add('hidden');
+        $('#emptyState').classList.remove('hidden');
+      }
+      renderUsersList();
+      $('#confirmModal').classList.add('hidden');
+      closeProfileModal();
+      showToast(I18n.t('dataCleared'), 'success', 2500);
+    } catch (e) {
+      showToast(I18n.t('dataClearFailed') + (e.message || ''), 'error');
+    }
+  });
+
+  // Save profile
   $('#profileForm').addEventListener('submit', async e => {
     e.preventDefault();
     const msg = $('#profileMsg'); hideFormMsg(msg);
@@ -992,7 +1268,6 @@ function initProfileSettings() {
       });
       state.profile = { ...state.profile, ...(updated || { full_name: newName, phone: newPhone || null, avatar_url: newColor }) };
       renderMyProfile();
-      // Refresh list colors
       renderUsersList();
       showFormMsg(msg, I18n.t('profileSaved'), 'success');
       showToast(I18n.t('profileSaved'), 'success', 2000);
@@ -1006,27 +1281,22 @@ function initProfileSettings() {
   });
 }
 
-/* ---------- 26) Mobile Keyboard Handling ---------- */
+/* ---------- 29) Mobile Keyboard ---------- */
 function initKeyboardHandler() {
   if (!window.visualViewport) return;
   const vv = window.visualViewport;
-
   const update = () => {
-    // Detect if keyboard is visible (viewport shrunk significantly)
     const isKeyboard = window.innerHeight - vv.height > 120;
     document.body.classList.toggle('keyboard-open', isKeyboard);
-
     if (isKeyboard && state.selectedPartner) {
-      // Give browser a moment to adjust, then scroll messages down
       setTimeout(() => scrollToBottom(true), 150);
     }
   };
-
   vv.addEventListener('resize', update);
   vv.addEventListener('scroll', update);
 }
 
-/* ---------- 27) Sidebar ---------- */
+/* ---------- 30) Sidebar ---------- */
 function initSidebar() {
   $('#searchUsers').addEventListener('input', () => renderUsersList());
 
@@ -1057,7 +1327,7 @@ function initSidebar() {
   });
 }
 
-/* ---------- 28) Bootstrap ---------- */
+/* ---------- 31) Bootstrap ---------- */
 document.addEventListener('DOMContentLoaded', () => {
   Theme.init();
   initLanguage();
@@ -1071,6 +1341,7 @@ document.addEventListener('DOMContentLoaded', () => {
   initLightbox();
   initProfileSettings();
   initKeyboardHandler();
+  initBackButtonHandler();
 
   $('#themeToggle').addEventListener('click', Theme.toggle);
 
@@ -1081,12 +1352,14 @@ document.addEventListener('DOMContentLoaded', () => {
     renderUsersList();
     renderMessages();
     updatePartnerHeader();
+    Notify.updateUI();
   });
 
   console.log('%cSirrApp','color:#6366f1;font-weight:bold;font-size:14px;','— ready ✨');
 });
 
 window.addEventListener('beforeunload', () => {
+  Messages.save();
   cleanupRealtime();
   if (state.mediaRecorder?.state === 'recording') { try { state.mediaRecorder.stop(); } catch(_){} }
   clearInterval(state.recTimer);
