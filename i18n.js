@@ -1,5 +1,5 @@
 /* ============================================================
-   SirrApp — i18n (AR / EN / FR) with Profile Settings keys
+   SirrApp — i18n (AR / EN / FR)
    ============================================================ */
 
 const TRANSLATIONS = {
@@ -20,7 +20,7 @@ const TRANSLATIONS = {
     privacyNote: '🔒 لا يتم تخزين محتوى رسائلك على السيرفر — تُنقل مباشرة عبر WebSockets.',
 
     online: 'متصل', searchUsers: 'ابحث عن مستخدم...',
-    ephemeralNote: '⚡ الرسائل مؤقتة ولا تُخزَّن.',
+    ephemeralNote: '⚡ الرسائل مؤقتة ولا تُخزَّن على السيرفر.',
     selectChatTitle: 'اختر محادثة للبدء',
     selectChatDesc: 'ابحث عن مستخدم أو اختر من محادثاتك الأخيرة.',
     e2eBadge: 'قناة مباشرة', typing: 'يكتب الآن...',
@@ -29,7 +29,6 @@ const TRANSLATIONS = {
     emoji: 'الرموز', sendImages: 'إرسال صور',
     typeMessage: 'اكتب رسالتك...', recordVoice: 'تسجيل صوتي',
 
-    // Profile Settings
     editProfile: 'تعديل الملف الشخصي',
     avatarColor: 'لون الصورة الرمزية',
     save: 'حفظ',
@@ -37,7 +36,6 @@ const TRANSLATIONS = {
     profileSaveFailed: 'فشل حفظ الملف الشخصي: ',
     profileInvalidName: 'الاسم يجب أن يكون بين 2 و60 حرفاً.',
 
-    // States & Lists
     recent: 'المحادثات الأخيرة',
     searchResults: 'نتائج البحث',
     noRecentTitle: 'لا محادثات بعد',
@@ -46,7 +44,6 @@ const TRANSLATIONS = {
     noSearchDesc: 'لم نجد أي مستخدم بهذا الاسم.',
     noUsers: 'لا يوجد مستخدمون.',
 
-    // Toasts
     fillAllFields: 'يرجى تعبئة جميع الحقول الإجبارية.',
     invalidEmail: 'البريد الإلكتروني غير صالح.',
     passwordMin: 'كلمة المرور يجب أن تكون 6 أحرف على الأقل.',
@@ -70,7 +67,30 @@ const TRANSLATIONS = {
     micError: 'تعذّر الوصول إلى الميكروفون.',
     audioSent: 'تم إرسال الرسالة الصوتية',
     msgTooLong: 'الرسالة طويلة جداً (الحد 500 حرف).',
-    lightMode: 'الوضع النهاري', darkMode: 'الوضع الليلي'
+    lightMode: 'الوضع النهاري', darkMode: 'الوضع الليلي',
+
+    // ===== New features =====
+    notificationsTitle: 'إشعارات المتصفح',
+    notificationsDesc: 'تمكين الإشعارات عند وصول رسالة جديدة.',
+    notificationsDescOn: 'الإشعارات مفعّلة. ستصلك تنبيهات عند وصول رسائل جديدة.',
+    notificationsDescOff: 'الإشعارات معطّلة. اضغط للتفعيل.',
+    notificationsDescBlocked: 'الإشعارات محظورة من إعدادات المتصفح. الرجاء تفعيلها يدوياً.',
+    enable: 'تفعيل',
+    disable: 'تعطيل',
+    notificationsEnabled: '🔔 تم تفعيل الإشعارات!',
+    notificationsDisabled: '🔕 تم تعطيل الإشعارات.',
+    notificationsBlocked: '⚠️ الإشعارات محظورة في المتصفح.',
+    notificationsUnsupported: '⚠️ متصفحك لا يدعم الإشعارات.',
+
+    deleteDataTitle: 'مسح جميع البيانات',
+    deleteDataDesc: 'حذف كل الرسائل المخزنة محلياً في هذا الجهاز.',
+    deleteDataBtn: 'مسح',
+    confirmDeleteTitle: 'تأكيد الحذف',
+    confirmDeleteDesc: 'سيتم حذف جميع الرسائل المخزنة محلياً. لا يمكن التراجع عن هذا الإجراء.',
+    dataCleared: '🗑️ تم مسح جميع البيانات المحلية.',
+    dataClearFailed: 'فشل مسح البيانات: ',
+
+    newMessageFrom: 'رسالة جديدة من'
   },
 
   /* ================= English ================= */
@@ -90,7 +110,7 @@ const TRANSLATIONS = {
     privacyNote: '🔒 Your messages are never stored on the server — they travel directly via WebSockets.',
 
     online: 'Online', searchUsers: 'Search users...',
-    ephemeralNote: '⚡ Messages are ephemeral — they vanish when the page closes.',
+    ephemeralNote: '⚡ Messages are ephemeral — not stored on the server.',
     selectChatTitle: 'Select a chat to start',
     selectChatDesc: 'Search a user or pick from your recent chats.',
     e2eBadge: 'Live channel', typing: 'typing...',
@@ -137,7 +157,29 @@ const TRANSLATIONS = {
     micError: 'Microphone access denied.',
     audioSent: 'Voice message sent',
     msgTooLong: 'Message is too long (max 500 chars).',
-    lightMode: 'Light mode', darkMode: 'Dark mode'
+    lightMode: 'Light mode', darkMode: 'Dark mode',
+
+    notificationsTitle: 'Browser Notifications',
+    notificationsDesc: 'Enable notifications for new messages.',
+    notificationsDescOn: 'Notifications enabled. You will be alerted on new messages.',
+    notificationsDescOff: 'Notifications off. Click to enable.',
+    notificationsDescBlocked: 'Notifications blocked in browser settings. Enable manually.',
+    enable: 'Enable',
+    disable: 'Disable',
+    notificationsEnabled: '🔔 Notifications enabled!',
+    notificationsDisabled: '🔕 Notifications disabled.',
+    notificationsBlocked: '⚠️ Notifications blocked in browser.',
+    notificationsUnsupported: '⚠️ Browser does not support notifications.',
+
+    deleteDataTitle: 'Delete All Data',
+    deleteDataDesc: 'Delete all locally stored messages on this device.',
+    deleteDataBtn: 'Delete',
+    confirmDeleteTitle: 'Confirm Delete',
+    confirmDeleteDesc: 'All locally stored messages will be deleted. This action cannot be undone.',
+    dataCleared: '🗑️ All local data cleared.',
+    dataClearFailed: 'Failed to clear data: ',
+
+    newMessageFrom: 'New message from'
   },
 
   /* ================= Français ================= */
@@ -157,7 +199,7 @@ const TRANSLATIONS = {
     privacyNote: '🔒 Vos messages ne sont jamais stockés — ils passent directement via WebSockets.',
 
     online: 'En ligne', searchUsers: 'Rechercher des utilisateurs...',
-    ephemeralNote: '⚡ Les messages sont éphémères.',
+    ephemeralNote: '⚡ Les messages sont éphémères — non stockés sur le serveur.',
     selectChatTitle: 'Choisissez une discussion',
     selectChatDesc: 'Recherchez un utilisateur ou choisissez dans vos discussions récentes.',
     e2eBadge: 'Canal direct', typing: 'est en train d\'écrire...',
@@ -204,7 +246,29 @@ const TRANSLATIONS = {
     micError: 'Accès au microphone refusé.',
     audioSent: 'Message vocal envoyé',
     msgTooLong: 'Message trop long (500 caractères max).',
-    lightMode: 'Mode clair', darkMode: 'Mode sombre'
+    lightMode: 'Mode clair', darkMode: 'Mode sombre',
+
+    notificationsTitle: 'Notifications du navigateur',
+    notificationsDesc: 'Activer les notifications pour les nouveaux messages.',
+    notificationsDescOn: 'Notifications activées. Vous serez alerté à chaque nouveau message.',
+    notificationsDescOff: 'Notifications désactivées. Cliquez pour activer.',
+    notificationsDescBlocked: 'Notifications bloquées dans le navigateur. Activez-les manuellement.',
+    enable: 'Activer',
+    disable: 'Désactiver',
+    notificationsEnabled: '🔔 Notifications activées !',
+    notificationsDisabled: '🔕 Notifications désactivées.',
+    notificationsBlocked: '⚠️ Notifications bloquées dans le navigateur.',
+    notificationsUnsupported: '⚠️ Navigateur non compatible.',
+
+    deleteDataTitle: 'Supprimer toutes les données',
+    deleteDataDesc: 'Supprimer tous les messages stockés localement sur cet appareil.',
+    deleteDataBtn: 'Supprimer',
+    confirmDeleteTitle: 'Confirmer la suppression',
+    confirmDeleteDesc: 'Tous les messages stockés localement seront supprimés. Action irréversible.',
+    dataCleared: '🗑️ Toutes les données locales ont été supprimées.',
+    dataClearFailed: 'Échec de la suppression : ',
+
+    newMessageFrom: 'Nouveau message de'
   }
 };
 
@@ -215,7 +279,6 @@ const I18n = (() => {
     const dict = TRANSLATIONS[currentLang] || TRANSLATIONS.ar;
     return dict[key] ?? TRANSLATIONS.ar[key] ?? key;
   }
-
   function setLang(lang) {
     if (!TRANSLATIONS[lang]) lang = 'ar';
     currentLang = lang;
@@ -226,7 +289,6 @@ const I18n = (() => {
     applyTranslations();
     document.dispatchEvent(new CustomEvent('i18n:changed', { detail: { lang, dir } }));
   }
-
   function applyTranslations() {
     document.querySelectorAll('[data-i18n]').forEach(el => {
       const v = t(el.getAttribute('data-i18n'));
@@ -242,7 +304,6 @@ const I18n = (() => {
     });
     document.title = `SirrApp — ${t('tagline')}`;
   }
-
   function getLang() { return currentLang; }
   function getDir() { return TRANSLATIONS[currentLang]._dir || 'ltr'; }
 
